@@ -72,7 +72,7 @@ class DataGenerator(object):
                          'NullBooleanField': faker.null_boolean,
                          'TextField': faker.text,
                          'TimeField': faker.time,
-                         'ForeignKey': lambda foreign: foreign.objects.order_by('?')[0]}
+                         'ForeignKey': lambda foreign, exclude=None: self.foreign_object_helper(foreign, exclude)}
 
     def generate_data(self, related=None):
         ''' Recursively generates data for the current model,
@@ -97,16 +97,23 @@ class DataGenerator(object):
                     value = self.type_map[field_name]()
 
                 if field.unique:
-                    while True:
+                    if field.rel:
+                        value = self.type_map[field_name](field.rel.to, value.pk)
+                        if not value:
+                            return
                         try:
                             self.model.objects.get(**{field.attname: value})
-                            if field.rel:
-                                value = self.type_map[field_name](field.rel.to)
-                            else:
-                                value = self.type_map[field_name]()
-                            continue
+                            return
                         except self.model.DoesNotExist:
-                            break
+                            pass
+                    else:
+                        while True:
+                            try:
+                                self.model.objects.get(**{field.attname: value})
+                                value = self.type_map[field_name]()
+                                continue
+                            except self.model.DoesNotExist:
+                                break
 
                 if field.choices:
                     value = choice(field.choices)[0]
@@ -129,3 +136,11 @@ class DataGenerator(object):
                     model_instance.__class__._meta.fields if field.rel]:
                 data_generator = DataGenerator(related_object.model, self.count)
                 data_generator.generate_data(related=model_instance.__class__.__name__)
+
+    def foreign_object_helper(self, foreign, exclude=None):
+        results = foreign.objects.exclude(pk=exclude)
+
+        if results.count():
+            return results.order_by('?')[0]
+        else:
+            return []
